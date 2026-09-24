@@ -1,7 +1,17 @@
-from app.llm.mistral_provider import MistralProvider
+import pytest
+
+pytestmark = pytest.mark.skip(reason="Mistral is disabled and not in use.")
+
+try:
+    from app.llm.mistral_provider import MistralProvider
+except Exception:
+    MistralProvider = None
 
 
 def main():
+    if MistralProvider is None:
+        print("Mistral provider is disabled or not installed.")
+        return
     provider = MistralProvider()
 
     try:

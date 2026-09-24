@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import time
 
-from mistralai.client import Mistral
+try:
+    from mistralai.client import Mistral
+except ImportError:
+    Mistral = None
 
 from app.config import MISTRAL_API_KEY, MISTRAL_MODEL
 from app.llm.base import LLMProvider
@@ -11,6 +14,10 @@ from app.llm.base import LLMProvider
 class MistralProvider(LLMProvider):
 
     def __init__(self):
+        if Mistral is None:
+            raise RuntimeError(
+                "mistralai is not installed. Install it with: pip install mistralai"
+            )
         if not MISTRAL_API_KEY:
             raise ValueError("MISTRAL_API_KEY is not configured.")
 
