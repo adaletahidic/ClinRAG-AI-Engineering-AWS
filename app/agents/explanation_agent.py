@@ -6,7 +6,7 @@ from app.domain.schemas import (
     PredictionResult,
 )
 from app.llm.base import LLMProvider
-from app.llm.factory import get_llm_provider
+from app.llm.factory import LLMProviderFactory
 
 
 class ExplanationAgent:
@@ -18,7 +18,7 @@ class ExplanationAgent:
     """
 
     def __init__(self, llm: LLMProvider | None = None):
-        self.llm = llm
+        self.llm = llm or LLMProviderFactory.create()
 
     def explain(
         self,
@@ -26,11 +26,6 @@ class ExplanationAgent:
         evidence: list[EvidenceChunk],
         question: str,
     ) -> AgentResponse:
-
-        # Dependency injection is used in tests.
-        # In production, the configured provider is created automatically.
-        if self.llm is None:
-            self.llm = get_llm_provider()
 
         return self._llm_explanation(
             prediction=prediction,
