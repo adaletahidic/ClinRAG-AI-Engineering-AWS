@@ -51,6 +51,7 @@ The root-level `test_groq.py` and `test_mistral.py` are provider smoke scripts a
 - `app/evaluation/evaluator.py` is the workflow gate. It validates prediction fields and prediction integrity, requires evidence when requested, checks positive retrieval relevance, rejects empty responses and known unsafe diagnostic phrases, and detects explicit unsupported evidence attributions. A failed check must not be turned into a successful response.
 - `app/evaluation/test_cases.py` defines repeatable workflow scenarios, including normal, missing-feature, and retrieval-failure expectations. `app/evaluation/runner.py` executes those scenarios against an injected async workflow and aggregates results with `app/evaluation/metrics.py`. Supply valid model features to the runner for scenarios that are expected to reach prediction.
 - `app/observability/events.py` emits structured JSON workflow events through the `clinrag.workflow` logger. `ClinRAGGraph.run()` assigns a request ID, records UTC timestamps and per-step latency in `trace`, and returns total `workflow_latency_ms`; keep these fields stable for later CloudWatch ingestion.
+- `app/api.py` is the local HTTP boundary. Use `create_app(graph=...)` for dependency injection in tests; `/workflow` is canonical, while `/predict` and `/explain` expose the same workflow contract for client compatibility. Propagate `X-Request-ID` when supplied and keep controlled workflow safe failures distinct from unexpected HTTP 500 errors.
 
 ## Codebase-specific conventions
 
