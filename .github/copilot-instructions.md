@@ -50,6 +50,7 @@ The root-level `test_groq.py` and `test_mistral.py` are provider smoke scripts a
 - `app/llm/factory.py` selects Groq or Mistral from `LLM_PROVIDER` (default `groq`). Provider configuration is read in `app/config.py` from `.env`/environment variables: `GROQ_API_KEY`, `GROQ_MODEL`, `MISTRAL_API_KEY`, and `MISTRAL_MODEL`.
 - `app/evaluation/evaluator.py` is the workflow gate. It validates prediction fields and prediction integrity, requires evidence when requested, checks positive retrieval relevance, rejects empty responses and known unsafe diagnostic phrases, and detects explicit unsupported evidence attributions. A failed check must not be turned into a successful response.
 - `app/evaluation/test_cases.py` defines repeatable workflow scenarios, including normal, missing-feature, and retrieval-failure expectations. `app/evaluation/runner.py` executes those scenarios against an injected async workflow and aggregates results with `app/evaluation/metrics.py`. Supply valid model features to the runner for scenarios that are expected to reach prediction.
+- `app/observability/events.py` emits structured JSON workflow events through the `clinrag.workflow` logger. `ClinRAGGraph.run()` assigns a request ID, records UTC timestamps and per-step latency in `trace`, and returns total `workflow_latency_ms`; keep these fields stable for later CloudWatch ingestion.
 
 ## Codebase-specific conventions
 

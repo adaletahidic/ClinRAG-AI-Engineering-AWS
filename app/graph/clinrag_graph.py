@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any, TypedDict
+from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 
@@ -13,11 +16,13 @@ from app.domain.schemas import (
 )
 from app.evaluation.evaluator import ClinRAGEvaluator
 from app.mcp.prediction_client import PredictionMCPClient
+from app.observability import emit_workflow_event
 
 
 class ClinRAGState(TypedDict, total=False):
     question: str
     features: dict[str, float]
+    request_id: str
     trace: list[dict[str, Any]]
 
     prediction: dict
@@ -123,18 +128,21 @@ class ClinRAGGraph:
         status: str,
         **details: Any,
     ) -> None:
+        event = {
+            "request_id": state.get("request_id"),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "step": step,
+            "agent": agent,
+            "status": status,
+            **details,
+        }
         trace = list(state.get("trace", []))
-        trace.append(
-            {
-                "step": step,
-                "agent": agent,
-                "status": status,
-                **details,
-            }
-        )
+        trace.append(event)
         state["trace"] = trace
+        emit_workflow_event(event)
 
     async def _prediction_node(self, state: ClinRAGState) -> dict:
+        started = perf_counter()
         try:
             prediction = await self.prediction_client.predict_patient(
                 state["features"]
@@ -146,6 +154,7 @@ class ClinRAGGraph:
                 agent="PredictionAgent",
                 status="success",
                 prediction=prediction,
+                latency_ms=round((perf_counter() - started) * 1000, 2),
             )
 
             return {
@@ -162,6 +171,7 @@ class ClinRAGGraph:
                 agent="PredictionAgent",
                 status="failed",
                 error=f"{type(exc).__name__}: {exc}",
+                latency_ms=round((perf_counter() - started) * 1000, 2),
             )
             return {
                 "trace": state.get("trace", []),
@@ -178,6 +188,7 @@ class ClinRAGGraph:
         return "safe_failure"
 
     def _knowledge_node(self, state: ClinRAGState) -> dict:
+        started = perf_counter()
         try:
             evidence = self.knowledge_agent.retrieve(
                 state["question"],
@@ -195,6 +206,7 @@ class ClinRAGGraph:
                 status="success",
                 retrieved_count=len(evidence_payload),
                 evidence=evidence_payload,
+                latency_ms=round((perf_counter() - started) * 1000, 2),
             )
 
             return {
@@ -209,6 +221,7 @@ class ClinRAGGraph:
                 agent="KnowledgeAgent",
                 status="failed",
                 error=f"{type(exc).__name__}: {exc}",
+                latency_ms=round((perf_counter() - started) * 1000, 2),
             )
             return {
                 "errors": state.get("errors", [])
@@ -218,6 +231,7 @@ class ClinRAGGraph:
             }
 
     def _explanation_node(self, state: ClinRAGState) -> dict:
+        started = perf_counter()
         prediction_data = state.get("prediction")
 
         if not prediction_data:
@@ -227,6 +241,7 @@ class ClinRAGGraph:
                 agent="ExplanationAgent",
                 status="skipped",
                 reason="prediction missing",
+                latency_ms=round((perf_counter() - started) * 1000, 2),
             )
             return {
                 "errors": state.get("errors", [])
@@ -257,6 +272,7 @@ class ClinRAGGraph:
                 status="success",
                 grounded=response.grounded,
                 evidence_used=len(response.evidence_used),
+                latency_ms=round((perf_counter() - started) * 1000, 2),
             )
 
             return {
@@ -272,6 +288,7 @@ class ClinRAGGraph:
                 agent="ExplanationAgent",
                 status="failed",
                 error=f"{type(exc).__name__}: {exc}",
+                latency_ms=round((perf_counter() - started) * 1000, 2),
             )
             return {
                 "errors": state.get("errors", [])
@@ -283,6 +300,7 @@ class ClinRAGGraph:
             }
 
     def _evaluation_node(self, state: ClinRAGState) -> dict:
+        started = perf_counter()
         prediction_data = state.get("prediction")
 
         if not prediction_data:
@@ -292,6 +310,7 @@ class ClinRAGGraph:
                 agent="ClinRAGEvaluator",
                 status="skipped",
                 reason="prediction missing",
+                latency_ms=round((perf_counter() - started) * 1000, 2),
             )
             return {
                 "evaluation_passed": False,
@@ -335,6 +354,7 @@ class ClinRAGGraph:
             safe=evaluation.safe,
             relevant=evaluation.relevant,
             issues=evaluation.issues,
+            latency_ms=round((perf_counter() - started) * 1000, 2),
         )
 
         return {
@@ -397,11 +417,13 @@ class ClinRAGGraph:
         self,
         question: str,
         features: dict[str, float],
+        request_id: str | None = None,
     ) -> ClinRAGState:
 
         initial_state: ClinRAGState = {
             "question": question,
             "features": features,
+            "request_id": request_id or str(uuid4()),
             "trace": [],
             "errors": [],
             "evaluation_issues": [],
@@ -416,4 +438,10 @@ class ClinRAGGraph:
             question=question,
         )
 
-        return await self.graph.ainvoke(initial_state)
+        started = perf_counter()
+        result = await self.graph.ainvoke(initial_state)
+        result["workflow_latency_ms"] = round(
+            (perf_counter() - started) * 1000,
+            2,
+        )
+        return result
