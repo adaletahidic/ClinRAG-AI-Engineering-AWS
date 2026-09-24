@@ -48,8 +48,8 @@ The root-level `test_groq.py` and `test_mistral.py` are provider smoke scripts a
 - `app/knowledge/document_loader.py` loads `.pdf`, `.txt`, and `.md` files, normalizes text, and creates overlapping character-window chunks. `app/knowledge/retriever.py` indexes chunks with local TF-IDF and cosine similarity, returning only positive-scoring `EvidenceChunk` results. The default knowledge source is `app/knowledge/documents/`.
 - `app/agents/knowledge_agent.py` adapts retriever results to the Pydantic evidence contract. `app/agents/explanation_agent.py` formats the immutable prediction and retrieved evidence into an LLM prompt; its `grounded` flag is based on supplied evidence, not on an LLM claim.
 - `app/llm/factory.py` selects Groq or Mistral from `LLM_PROVIDER` (default `groq`). Provider configuration is read in `app/config.py` from `.env`/environment variables: `GROQ_API_KEY`, `GROQ_MODEL`, `MISTRAL_API_KEY`, and `MISTRAL_MODEL`.
-- `app/evaluation/evaluator.py` is the workflow gate. It validates prediction fields, requires evidence when requested, rejects empty responses and known unsafe diagnostic phrases, and checks relevance. A failed check must not be turned into a successful response.
-- `app/evaluation/` contains evaluation data structures and aggregate metric helpers. It does not run a CLI evaluation command.
+- `app/evaluation/evaluator.py` is the workflow gate. It validates prediction fields and prediction integrity, requires evidence when requested, checks positive retrieval relevance, rejects empty responses and known unsafe diagnostic phrases, and detects explicit unsupported evidence attributions. A failed check must not be turned into a successful response.
+- `app/evaluation/test_cases.py` defines repeatable workflow scenarios, including normal, missing-feature, and retrieval-failure expectations. `app/evaluation/runner.py` executes those scenarios against an injected async workflow and aggregates results with `app/evaluation/metrics.py`. Supply valid model features to the runner for scenarios that are expected to reach prediction.
 
 ## Codebase-specific conventions
 

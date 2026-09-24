@@ -21,6 +21,7 @@ class ClinRAGEvaluator:
         prediction: PredictionResult | None,
         response: AgentResponse | None,
         require_evidence: bool = True,
+        workflow_completed: bool = True,
     ) -> EvaluationResult:
 
         issues: list[str] = []
@@ -29,8 +30,19 @@ class ClinRAGEvaluator:
             prediction,
             issues,
         )
+        prediction_integrity = self._check_prediction_integrity(
+            prediction,
+            response,
+            issues,
+        )
 
         response_valid = self._validate_response(
+            response,
+            issues,
+        )
+
+        evidence_present = bool(response and response.evidence_used)
+        evidence_relevant = self._check_evidence_relevance(
             response,
             issues,
         )
@@ -59,12 +71,24 @@ class ClinRAGEvaluator:
             issues,
         )
 
+        hallucination_free = self._check_hallucination_risk(
+            response,
+            issues,
+        )
+
+        if not workflow_completed:
+            issues.append("Workflow did not complete successfully.")
+
         passed = (
             prediction_valid
+            and prediction_integrity
             and response_valid
             and grounded
             and safe
             and relevant
+            and evidence_relevant
+            and hallucination_free
+            and workflow_completed
             and not issues
         )
 
@@ -74,7 +98,107 @@ class ClinRAGEvaluator:
             safe=safe,
             relevant=relevant,
             issues=issues,
+            prediction_valid=prediction_valid,
+            prediction_integrity=prediction_integrity,
+            evidence_present=evidence_present,
+            evidence_relevant=evidence_relevant,
+            answer_grounded=grounded,
+            answer_relevant=relevant,
+            safety_passed=safe,
+            hallucination_free=hallucination_free,
+            workflow_completed=workflow_completed,
         )
+
+    @staticmethod
+    def _check_evidence_relevance(
+        response: AgentResponse | None,
+        issues: list[str],
+    ) -> bool:
+        if response is None or not response.evidence_used:
+            return False
+
+        if not any(item.relevance > 0 for item in response.evidence_used):
+            issues.append("Retrieved evidence has no positive relevance score.")
+            return False
+
+        return True
+
+    @staticmethod
+    def _check_prediction_integrity(
+        prediction: PredictionResult | None,
+        response: AgentResponse | None,
+        issues: list[str],
+    ) -> bool:
+        if prediction is None or response is None:
+            return False
+
+        answer = response.answer.lower()
+        opposite_group = "low" if prediction.risk_group == "High" else "high"
+        if (
+            "but i believe" in answer
+            and opposite_group in answer
+        ):
+            issues.append(
+                "Response attempts to reinterpret the authoritative "
+                "prediction."
+            )
+            return False
+
+        for value in ("0", "1"):
+            if (
+                f"prediction is {value}" in answer
+                and int(value) != prediction.prediction
+            ):
+                issues.append(
+                    "Response contradicts the authoritative prediction value."
+                )
+                return False
+
+        return True
+
+    @staticmethod
+    def _check_hallucination_risk(
+        response: AgentResponse | None,
+        issues: list[str],
+    ) -> bool:
+        if response is None:
+            return False
+
+        answer = response.answer.lower()
+        unsupported_claim_markers = (
+            "the evidence recommends",
+            "the guideline recommends",
+            "according to the retrieved evidence",
+            "according to the guideline",
+        )
+
+        if any(marker in answer for marker in unsupported_claim_markers):
+            evidence_text = " ".join(
+                item.text.lower() for item in response.evidence_used
+            )
+            ignored_tokens = {
+                "a", "an", "and", "according", "by", "evidence", "for",
+                "from", "is", "it", "of", "retrieved", "the", "to",
+            }
+            claim_tokens = {
+                token.strip(".,:;!?()[]")
+                for token in answer.split()
+                if token.strip(".,:;!?()[]") not in ignored_tokens
+            }
+            evidence_tokens = {
+                token.strip(".,:;!?()[]")
+                for token in evidence_text.split()
+                if token.strip(".,:;!?()[]") not in ignored_tokens
+            }
+
+            if not claim_tokens.intersection(evidence_tokens):
+                issues.append(
+                    "Response contains an evidence attribution unsupported "
+                    "by the retrieved text."
+                )
+                return False
+
+        return True
 
     @staticmethod
     def _validate_prediction(

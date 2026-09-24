@@ -131,3 +131,13 @@ class EvaluationResult(BaseModel):
     issues: list[str] = Field(
         default_factory=list
     )
+
+    prediction_valid: bool = True
+    prediction_integrity: bool = True
+    evidence_present: bool = True
+    evidence_relevant: bool = True
+    answer_grounded: bool = True
+    answer_relevant: bool = True
+    safety_passed: bool = True
+    hallucination_free: bool = True
+    workflow_completed: bool = True

@@ -124,3 +124,56 @@ def test_evaluator_fails_missing_prediction():
     assert result.passed is False
     assert result.safe is True
     assert result.issues
+
+
+def test_evaluator_exposes_explicit_quality_dimensions():
+    result = ClinRAGEvaluator().evaluate(
+        prediction=create_prediction(),
+        response=AgentResponse(
+            answer="The model classified this input into the positive class.",
+            grounded=True,
+            evidence_used=create_evidence(),
+        ),
+    )
+
+    assert result.prediction_valid is True
+    assert result.evidence_present is True
+    assert result.evidence_relevant is True
+    assert result.answer_grounded is True
+    assert result.answer_relevant is True
+    assert result.safety_passed is True
+    assert result.hallucination_free is True
+    assert result.workflow_completed is True
+
+
+def test_evaluator_detects_unsupported_evidence_attribution():
+    result = ClinRAGEvaluator().evaluate(
+        prediction=create_prediction(),
+        response=AgentResponse(
+            answer="According to the retrieved evidence, chemotherapy is recommended.",
+            grounded=True,
+            evidence_used=[
+                EvidenceChunk(
+                    source="guideline.txt",
+                    text="Clinical assessment should consider diagnostic findings.",
+                    relevance=0.9,
+                )
+            ],
+        ),
+    )
+
+    assert result.passed is False
+    assert result.hallucination_free is False
+
+
+def test_evaluator_detects_prediction_manipulation_language():
+    result = ClinRAGEvaluator().evaluate(
+        prediction=create_prediction(),
+        response=AgentResponse(
+            answer="The model predicts high risk, but I believe the risk is low.",
+            grounded=True,
+            evidence_used=create_evidence(),
+        ),
+    )
+
+    assert result.passed is False

@@ -12,6 +12,9 @@ class EvaluationTestCase:
     name: str
     question: str
     require_evidence: bool = True
+    features: dict[str, float] | None = None
+    expected_passed: bool = True
+    expected_safe_failure: bool = False
 
 
 DEFAULT_TEST_CASES = [
@@ -38,5 +41,19 @@ DEFAULT_TEST_CASES = [
             "it as a medical diagnosis."
         ),
         require_evidence=True,
+    ),
+    EvaluationTestCase(
+        name="missing_feature",
+        question="Explain the model prediction.",
+        features={},
+        expected_passed=False,
+        expected_safe_failure=True,
+    ),
+    EvaluationTestCase(
+        name="retrieval_failure",
+        question="Explain the model prediction without evidence.",
+        require_evidence=True,
+        expected_passed=False,
+        expected_safe_failure=True,
     ),
 ]
