@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
@@ -18,6 +18,7 @@ from app.mcp.prediction_client import PredictionMCPClient
 class ClinRAGState(TypedDict, total=False):
     question: str
     features: dict[str, float]
+    trace: list[dict[str, Any]]
 
     prediction: dict
     evidence: list[dict]
@@ -113,20 +114,57 @@ class ClinRAGGraph:
 
         return workflow.compile()
 
+    @staticmethod
+    def _append_trace(
+        state: ClinRAGState,
+        *,
+        step: str,
+        agent: str,
+        status: str,
+        **details: Any,
+    ) -> None:
+        trace = list(state.get("trace", []))
+        trace.append(
+            {
+                "step": step,
+                "agent": agent,
+                "status": status,
+                **details,
+            }
+        )
+        state["trace"] = trace
+
     async def _prediction_node(self, state: ClinRAGState) -> dict:
         try:
             prediction = await self.prediction_client.predict_patient(
                 state["features"]
             )
 
+            self._append_trace(
+                state,
+                step="prediction",
+                agent="PredictionAgent",
+                status="success",
+                prediction=prediction,
+            )
+
             return {
                 "prediction": prediction,
+                "trace": state.get("trace", []),
                 "errors": [],
                 "safe_failure": False,
             }
 
         except Exception as exc:
+            self._append_trace(
+                state,
+                step="prediction",
+                agent="PredictionAgent",
+                status="failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
             return {
+                "trace": state.get("trace", []),
                 "errors": [
                     f"Prediction step failed: {type(exc).__name__}: {exc}"
                 ],
@@ -146,26 +184,54 @@ class ClinRAGGraph:
                 top_k=5,
             )
 
+            evidence_payload = [
+                item.model_dump() for item in evidence
+            ]
+
+            self._append_trace(
+                state,
+                step="knowledge",
+                agent="KnowledgeAgent",
+                status="success",
+                retrieved_count=len(evidence_payload),
+                evidence=evidence_payload,
+            )
+
             return {
-                "evidence": [
-                    item.model_dump() for item in evidence
-                ]
+                "evidence": evidence_payload,
+                "trace": state.get("trace", []),
             }
 
         except Exception as exc:
+            self._append_trace(
+                state,
+                step="knowledge",
+                agent="KnowledgeAgent",
+                status="failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
             return {
                 "errors": state.get("errors", [])
                 + [f"Knowledge step failed: {type(exc).__name__}: {exc}"],
                 "evidence": [],
+                "trace": state.get("trace", []),
             }
 
     def _explanation_node(self, state: ClinRAGState) -> dict:
         prediction_data = state.get("prediction")
 
         if not prediction_data:
+            self._append_trace(
+                state,
+                step="explanation",
+                agent="ExplanationAgent",
+                status="skipped",
+                reason="prediction missing",
+            )
             return {
                 "errors": state.get("errors", [])
-                + ["Explanation step skipped because prediction is missing."]
+                + ["Explanation step skipped because prediction is missing."],
+                "trace": state.get("trace", []),
             }
 
         try:
@@ -184,24 +250,49 @@ class ClinRAGGraph:
                 question=state["question"],
             )
 
+            self._append_trace(
+                state,
+                step="explanation",
+                agent="ExplanationAgent",
+                status="success",
+                grounded=response.grounded,
+                evidence_used=len(response.evidence_used),
+            )
+
             return {
                 "answer": response.answer,
                 "grounded": response.grounded,
+                "trace": state.get("trace", []),
             }
 
         except Exception as exc:
+            self._append_trace(
+                state,
+                step="explanation",
+                agent="ExplanationAgent",
+                status="failed",
+                error=f"{type(exc).__name__}: {exc}",
+            )
             return {
                 "errors": state.get("errors", [])
                 + [
                     f"Explanation step failed: "
                     f"{type(exc).__name__}: {exc}"
-                ]
+                ],
+                "trace": state.get("trace", []),
             }
 
     def _evaluation_node(self, state: ClinRAGState) -> dict:
         prediction_data = state.get("prediction")
 
         if not prediction_data:
+            self._append_trace(
+                state,
+                step="evaluation",
+                agent="ClinRAGEvaluator",
+                status="skipped",
+                reason="prediction missing",
+            )
             return {
                 "evaluation_passed": False,
                 "safe": False,
@@ -210,6 +301,7 @@ class ClinRAGGraph:
                 "evaluation_issues": [
                     "Evaluation skipped because prediction is missing."
                 ],
+                "trace": state.get("trace", []),
             }
 
         prediction = PredictionResult.model_validate(
@@ -233,12 +325,25 @@ class ClinRAGGraph:
             require_evidence=True,
         )
 
+        self._append_trace(
+            state,
+            step="evaluation",
+            agent="ClinRAGEvaluator",
+            status="success" if evaluation.passed else "failed",
+            passed=evaluation.passed,
+            grounded=evaluation.grounded,
+            safe=evaluation.safe,
+            relevant=evaluation.relevant,
+            issues=evaluation.issues,
+        )
+
         return {
             "evaluation_passed": evaluation.passed,
             "safe": evaluation.safe,
             "relevant": evaluation.relevant,
             "grounded": evaluation.grounded,
             "evaluation_issues": evaluation.issues,
+            "trace": state.get("trace", []),
         }
 
     def _route_after_evaluation(self, state: ClinRAGState) -> str:
@@ -271,10 +376,21 @@ class ClinRAGGraph:
                 "did not pass the required safety and grounding checks."
             )
 
+        self._append_trace(
+            state,
+            step="safe_failure",
+            agent="ClinRAGGraph",
+            status="triggered",
+            reason=message,
+            error_count=len(errors),
+            evaluation_issue_count=len(evaluation_issues),
+        )
+
         return {
             "answer": message,
             "grounded": False,
             "safe_failure": True,
+            "trace": state.get("trace", []),
         }
 
     async def run(
@@ -286,9 +402,18 @@ class ClinRAGGraph:
         initial_state: ClinRAGState = {
             "question": question,
             "features": features,
+            "trace": [],
             "errors": [],
             "evaluation_issues": [],
             "safe_failure": False,
         }
+
+        self._append_trace(
+            initial_state,
+            step="workflow_start",
+            agent="ClinRAGGraph",
+            status="initialized",
+            question=question,
+        )
 
         return await self.graph.ainvoke(initial_state)

@@ -94,6 +94,11 @@ async def test_clinrag_graph_runs_end_to_end():
     assert result["errors"] == []
 
     assert result["safe_failure"] is False
+    assert any(entry["step"] == "workflow_start" for entry in result["trace"])
+    assert any(entry["step"] == "prediction" for entry in result["trace"])
+    assert any(entry["step"] == "knowledge" for entry in result["trace"])
+    assert any(entry["step"] == "explanation" for entry in result["trace"])
+    assert any(entry["step"] == "evaluation" for entry in result["trace"])
 
 
 @pytest.mark.asyncio
