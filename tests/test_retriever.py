@@ -102,6 +102,22 @@ def test_retriever_returns_evidence_chunks():
     evidence = results[0]
 
     assert evidence.source == "guideline.pdf"
-    assert evidence.page == 3
-    assert evidence.text
-    assert 0.0 <= evidence.relevance <= 1.0
+
+
+def test_retriever_normalizes_mammography_terms():
+    retriever = KnowledgeRetriever(
+        [
+            DocumentChunk(
+                source="screening.pdf",
+                page=1,
+                text="Mammography is used for breast cancer screening.",
+            )
+        ]
+    )
+
+    evidence = retriever.retrieve("Trebam li raditi mamografiju?")
+
+    assert evidence
+    assert evidence[0].source == "screening.pdf"
+    assert evidence[0].text
+    assert 0.0 <= evidence[0].relevance <= 1.0

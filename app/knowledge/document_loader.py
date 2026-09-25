@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 
 @dataclass
@@ -71,6 +72,33 @@ class DocumentLoader:
         raise ValueError(
             f"Unsupported document type: {suffix}"
         )
+
+    def load_bytes(
+        self,
+        content: bytes,
+        filename: str,
+    ) -> list[DocumentChunk]:
+        """Load an uploaded document without permanently storing it."""
+        suffix = Path(filename).suffix.lower()
+        if suffix in {".txt", ".md"}:
+            return self._load_text_from_content(
+                content.decode("utf-8"),
+                source=filename,
+            )
+        if suffix == ".pdf":
+            with NamedTemporaryFile(suffix=suffix) as temporary_file:
+                temporary_file.write(content)
+                temporary_file.flush()
+                chunks = self._load_pdf(Path(temporary_file.name))
+            return [
+                DocumentChunk(
+                    source=filename,
+                    page=chunk.page,
+                    text=chunk.text,
+                )
+                for chunk in chunks
+            ]
+        raise ValueError(f"Unsupported document type: {suffix}")
 
     def load_directory(
         self,

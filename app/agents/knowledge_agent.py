@@ -35,6 +35,14 @@ class KnowledgeAgent:
             for result in results
         ]
 
+    def add_uploaded_document(self, content: bytes, filename: str) -> int:
+        loader = DocumentLoader()
+        chunks = loader.load_bytes(content, filename)
+        if not chunks:
+            raise ValueError(f"No readable text found in document: {filename}")
+        self.retriever.add_documents(chunks)
+        return len(chunks)
+
     @staticmethod
     def _to_evidence_chunk(result: Any) -> EvidenceChunk:
         if isinstance(result, EvidenceChunk):

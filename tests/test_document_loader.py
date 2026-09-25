@@ -69,3 +69,16 @@ def test_document_loader_missing_file():
 
     with pytest.raises(FileNotFoundError):
         loader.load("does_not_exist.pdf")
+
+
+def test_document_loader_reads_uploaded_text_bytes():
+    loader = DocumentLoader()
+
+    chunks = loader.load_bytes(
+        b"Breast screening evidence and risk stratification.",
+        "uploaded-guidance.txt",
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0].source == "uploaded-guidance.txt"
+    assert "risk stratification" in chunks[0].text

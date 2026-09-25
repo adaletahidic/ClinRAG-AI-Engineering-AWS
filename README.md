@@ -27,6 +27,28 @@ The CSV must contain the 30 feature columns listed in
 does not upload CSV files to the backend; it validates the file locally and
 sends only the selected row's numeric features to `/workflow`.
 
+After selecting a patient and running the first explanation, the UI provides
+a follow-up chat. Each question is evaluated through the same safe workflow,
+with the selected patient features and current prediction authority preserved.
+
+### Adding PDF grounding
+
+The bundled knowledge base is stored in:
+
+```text
+app/knowledge/documents/
+```
+
+Place trusted `.pdf`, `.txt`, or `.md` files there before starting the API.
+They are loaded automatically when the `KnowledgeAgent` starts. You can also
+upload additional documents from the Streamlit sidebar while the application
+is running. Uploaded documents are held in the running API process and are
+cleared when the container is recreated; they are not committed to Git.
+
+Use only trusted, de-identified or public clinical material. Retrieval is
+currently local TF-IDF and cosine similarity; it is not a persistent vector
+database or a medical guideline validation service.
+
 Without Docker, install the UI dependencies and run two processes:
 
 ```powershell

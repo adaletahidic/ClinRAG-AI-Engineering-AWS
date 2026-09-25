@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -49,6 +49,11 @@ class RequestLimitMiddleware(BaseHTTPMiddleware):
 class WorkflowRequest(BaseModel):
     question: str = Field(min_length=1)
     features: dict[str, float] = Field(default_factory=dict)
+
+
+class KnowledgeUploadResponse(BaseModel):
+    filename: str
+    chunks_added: int
 
 
 class WorkflowResponse(BaseModel):
@@ -101,6 +106,33 @@ def create_app(graph: ClinRAGGraph | None = None) -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.post("/knowledge/upload", response_model=KnowledgeUploadResponse)
+    async def upload_knowledge(
+        file: UploadFile = File(...),
+    ) -> KnowledgeUploadResponse:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Filename is required.")
+        filename = file.filename
+        if not filename.lower().endswith((".pdf", ".txt", ".md")):
+            raise HTTPException(
+                status_code=400,
+                detail="Only PDF, TXT, and MD files are supported.",
+            )
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+        try:
+            chunks_added = get_graph().knowledge_agent.add_uploaded_document(
+                content,
+                filename,
+            )
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return KnowledgeUploadResponse(
+            filename=filename,
+            chunks_added=chunks_added,
+        )
 
     async def execute_workflow(
         payload: WorkflowRequest,

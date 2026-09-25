@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -81,6 +82,8 @@ class KnowledgeRetriever:
                 "Query cannot be empty."
             )
 
+        query = self._normalize_query(query)
+
         if top_k <= 0:
             raise ValueError(
                 "top_k must be greater than zero."
@@ -124,6 +127,26 @@ class KnowledgeRetriever:
             )
 
         return results
+
+    @staticmethod
+    def _normalize_query(query: str) -> str:
+        """Handle common spelling variants without changing user intent."""
+        replacements = {
+            r"\bmamography\b": "mammography",
+            r"\bmamogram\b": "mammogram",
+            r"\bmamograms\b": "mammograms",
+            r"\bmamografija\b": "mammography",
+            r"\bmamografiju\b": "mammography",
+            r"\bmamografije\b": "mammography",
+            r"\bmamografijom\b": "mammography",
+            r"\bdojke\b": "breast",
+            r"\bdojki\b": "breast",
+            r"\btrebam\s+li\b": "should I",
+            r"\bda\s+li\s+trebam\b": "should I",
+        }
+        for pattern, replacement in replacements.items():
+            query = re.sub(pattern, replacement, query, flags=re.IGNORECASE)
+        return query
 
     def retrieve_with_scores(
         self,
