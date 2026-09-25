@@ -4,7 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     env_file:
-      - .env
+      - path: .env
+        required: false
     ports:
       - "8000:8000"
     healthcheck:
@@ -19,3 +20,26 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+  clinrag-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CLINRAG_API_URL: http://clinrag-api:8000
+    ports:
+      - "8501:8501"
+    command:
+      [
+        "streamlit",
+        "run",
+        "frontend/streamlit_app.py",
+        "--server.address=0.0.0.0",
+        "--server.port=8501",
+        "--server.headless=true",
+      ]
+    depends_on:
+      clinrag-api:
+        condition: service_healthy

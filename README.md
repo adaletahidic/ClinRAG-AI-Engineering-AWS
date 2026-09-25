@@ -1,5 +1,40 @@
 # ClinRAG local API
 
+## Local Streamlit application
+
+Create a local environment file from the template and put your own Groq key
+in it:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Never commit `.env` or share its API key. Then start both the API and visual
+application:
+
+```powershell
+docker compose build
+docker compose up -d
+```
+
+Open the Streamlit UI at `http://localhost:8501`. It supports CSV upload,
+patient-row selection, prediction, evidence-grounded explanation, evaluator
+status, retrieved evidence, and workflow trace. The backend Swagger UI remains
+available at `http://localhost:8000/docs`.
+
+The CSV must contain the 30 feature columns listed in
+`models/metadata.json`. The example files can be uploaded directly. The UI
+does not upload CSV files to the backend; it validates the file locally and
+sends only the selected row's numeric features to `/workflow`.
+
+Without Docker, install the UI dependencies and run two processes:
+
+```powershell
+python -m pip install -r requirements-ui.txt
+uvicorn app.api:app --reload --port 8000
+streamlit run frontend/streamlit_app.py
+```
+
 ## Start the local container
 
 ```powershell
