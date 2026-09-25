@@ -22,6 +22,10 @@ class LLMProviderFactory:
             from app.llm.mistral_provider import MistralProvider
             return MistralProvider()
 
+        if provider == "bedrock":
+            from app.llm.bedrock_provider import BedrockProvider
+            return BedrockProvider()
+
         raise ValueError(
             f"Unsupported LLM_PROVIDER: {LLM_PROVIDER}"
         )

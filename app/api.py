@@ -3,10 +3,47 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp
 
+from app.config import (
+    ALLOWED_ORIGINS,
+    LOG_LEVEL,
+    MAX_REQUEST_BODY_BYTES,
+    WORKFLOW_TIMEOUT_SECONDS,
+)
 from app.graph.clinrag_graph import ClinRAGGraph
+from app.observability import emit_workflow_event
+import asyncio
+import logging
+
+
+logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
+
+
+class RequestLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app: ASGIApp, max_body_bytes: int):
+        super().__init__(app)
+        self.max_body_bytes = max_body_bytes
+
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > self.max_body_bytes:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "request_id": request.headers.get(
+                        "x-request-id",
+                        str(uuid4()),
+                    ),
+                    "error": "Request body exceeds configured limit.",
+                },
+            )
+        return await call_next(request)
 
 
 class WorkflowRequest(BaseModel):
@@ -41,6 +78,17 @@ def create_app(graph: ClinRAGGraph | None = None) -> FastAPI:
         title="ClinRAG API",
         version="1.0.0",
     )
+    app.add_middleware(
+        RequestLimitMiddleware,
+        max_body_bytes=MAX_REQUEST_BODY_BYTES,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_credentials=ALLOWED_ORIGINS != ["*"],
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
 
     workflow_graph = graph
 
@@ -59,20 +107,35 @@ def create_app(graph: ClinRAGGraph | None = None) -> FastAPI:
         request_id: str,
     ) -> WorkflowResponse:
         try:
-            result = await get_graph().run(
-                question=payload.question,
-                features=payload.features,
-                request_id=request_id,
+            result = await asyncio.wait_for(
+                get_graph().run(
+                    question=payload.question,
+                    features=payload.features,
+                    request_id=request_id,
+                ),
+                timeout=WORKFLOW_TIMEOUT_SECONDS,
             )
         except Exception as exc:
+            if isinstance(exc, asyncio.TimeoutError):
+                message = "Workflow execution exceeded the configured timeout."
+                emit_workflow_event(
+                    {
+                        "request_id": request_id,
+                        "step": "api",
+                        "status": "timeout",
+                        "error": message,
+                    }
+                )
+            else:
+                message = (
+                    f"Workflow execution failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
             raise HTTPException(
                 status_code=500,
                 detail={
                     "request_id": request_id,
-                    "error": (
-                        f"Workflow execution failed: "
-                        f"{type(exc).__name__}: {exc}"
-                    ),
+                    "error": message,
                 },
             ) from exc
 

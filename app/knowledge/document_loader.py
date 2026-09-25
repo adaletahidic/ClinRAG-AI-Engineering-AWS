@@ -155,9 +155,24 @@ class DocumentLoader:
         if not text:
             return []
 
+        return self._load_text_from_content(
+            text,
+            source=str(path),
+        )
+
+    def _load_text_from_content(
+        self,
+        text: str,
+        source: str,
+    ) -> list[DocumentChunk]:
+        text = self._normalize_text(text)
+
+        if not text:
+            return []
+
         return [
             DocumentChunk(
-                source=str(path),
+                source=source,
                 page=None,
                 text=chunk,
             )
