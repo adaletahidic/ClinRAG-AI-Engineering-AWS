@@ -1,0 +1,8 @@
+aws_region      = "eu-central-1"
+project_name    = "clinrag"
+environment     = "dev"
+container_image = "ACCOUNT_ID.dkr.ecr.eu-central-1.amazonaws.com/clinrag-dev:latest"
+llm_provider    = "groq"
+
+# Use an existing secret ARN when available. Do not commit secret values.
+# secret_arn = "arn:aws:secretsmanager:eu-central-1:ACCOUNT_ID:secret:..."
